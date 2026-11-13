@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reconocimiento de Señas en Español</title>
+  
+  <!-- Librerías oficiales de MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      text-align: center;
+      background: #0f172a;
+      color: #f8fafc;
+      margin: 0;
+      padding: 15px;
+    }
+    h2 { margin: 5px 0 10px 0; font-size: 24px; }
+    .instrucciones {
+      color: #94a3b8;
+      font-size: 13px;
+      margin-bottom: 15px;
+    }
+    .instrucciones span {
+      display: inline-block;
+      background: #1e293b;
+      padding: 2px 6px;
+      margin: 2px;
+      border-radius: 4px;
+      color: #38bdf8;
+      font-weight: bold;
+    }
+    .container {
+      position: relative;
+      display: inline-block;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6);
+      border: 2px solid #334155;
+      background: #000;
+    }
+    video { display: none; }
+    canvas {
+      display: block;
+      width: 100%;
+      max-width: 480px;
+      height: auto;
+      transform: scaleX(-1); /* Efecto espejo */
+    }
+    #resultado-box {
+      margin-top: 15px;
+      display: inline-block;
+      background: #1e293b;
+      padding: 10px 30px;
+      border-radius: 8px;
+      border: 1px solid #38bdf8;
+    }
+    #letra {
+      font-size: 38px;
+      font-weight: 800;
+      color: #38bdf8;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Lenguaje de Señas (Español)</h2>
+  <div class="instrucciones">
+    Letras reconocidas:
+    <span>A</span><span>B</span><span>C</span><span>D</span><span>I</span>
+    <span>L</span><span>U</span><span>V</span><span>W</span><span>Y</span>
+  </div>
+
+  <div class="container">
+    <video id="webcam" playsinline></video>
+    <canvas id="canvas" width="480" height="360"></canvas>
+  </div>
+
+  <div id="resultado-box">
+    <div>Letra detectada:</div>
+    <div id="letra">...</div>
+  </div>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const letraDiv = document.getElementById('letra');
+
+    // Conexiones de los 21 puntos de la mano
+    const CONNECTIONS = [
+      [0,1],[1,2],[2,3],[3,4],
+      [0,5],[5,6],[6,7],[7,8],
+      [5,9],[9,10],[10,11],[11,12],
+      [9,13],[13,14],[14,15],[15,16],
+      [13,17],[17,18],[18,19],[19,20],
+      [0,17]
+    ];
+
+    function dist(p1, p2) {
+      return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    }
+
+    function clasificar(lm) {
+      const pulgar = Math.abs(lm[4].x - lm[2].x) > 0.05;
+      const i = lm[8].y < lm[6].y;
+      const m = lm[12].y < lm[10].y;
+      const a = lm[16].y < lm[14].y;
+      const q = lm[20].y < lm[18].y;
+
+      const distIM = dist(lm[8], lm[12]);
+      const distPI = dist(lm[4], lm[8]);
+
+      if (i && !m && !a && !q && pulgar) return "L";
+      if (q && !i && !m && !a && !pulgar) return "I";
+      if (q && pulgar && !i && !m && !a) return "Y";
+      if (i && m && !a && !q) return distIM > 0.06 ? "V" : "U";
+      if (i && m && a && !q) return "W";
+      if (i && !m && !a && !q) return "D";
+      if (i && m && a && q && !pulgar) return "B";
+      if (!i && !m && !a && !q && pulgar) return "A";
+      if (distPI > 0.07 && distPI < 0.20 && !i && !m && !a && !q) return "C";
+
+      return "...";
+    }
+
+    // Configuración ultraligera de MediaPipe
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 0, // 0 = Modo Lite (Súper rápido, no satura la CPU)
+      minDetectionConfidence: 0.4,
+      minTrackingConfidence: 0.4
+    });
+
+    hands.onResults((results) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const lm = results.multiHandLandmarks[0];
+
+        // Dibujar líneas
+        ctx.strokeStyle = '#00f0ff';
+        ctx.lineWidth = 2;
+        for (const [p1, p2] of CONNECTIONS) {
+          ctx.beginPath();
+          ctx.moveTo(lm[p1].x * canvas.width, lm[p1].y * canvas.height);
+          ctx.lineTo(lm[p2].x * canvas.width, lm[p2].y * canvas.height);
+          ctx.stroke();
+        }
+
+        // Dibujar puntos
+        ctx.fillStyle = '#ff0055';
+        for (const pt of lm) {
+          ctx.beginPath();
+          ctx.arc(pt.x * canvas.width, pt.y * canvas.height, 4, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+
+        const detectada = clasificar(lm);
+        letraDiv.innerText = detectada;
+        letraDiv.style.color = (detectada !== "...") ? "#22c55e" : "#38bdf8";
+      } else {
+        letraDiv.innerText = "...";
+      }
+      isProcessing = false; // Desbloquear para el siguiente fotograma
+    });
+
+    // Control de flujo: Evita congelamiento descartando fotogramas si la máquina está ocupada
+    let isProcessing = false;
+
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        if (!isProcessing) {
+          isProcessing = true;
+          await hands.send({image: video});
+        }
+      },
+      width: 480,
+      height: 360
+    });
+
+    camera.start();
+  </script>
+</body>
+</html>
